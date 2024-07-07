@@ -9,7 +9,7 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.11"
-dbus-fast = "^2.21.3"
+dbus-fast = "^2.22.1"
 pygobject = "^3.48.2"
 
 [tool.setuptools.package-data]
