@@ -1,0 +1,6 @@
+[Allow netdev users to modify some network states and settings]
+Identity=unix-group:netdev;unix-user:riderbot
+Action=org.freedesktop.NetworkManager.*
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes

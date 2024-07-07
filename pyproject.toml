@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "ble-server"
+version = "0.1.0"
+description = "BLE GATT Server"
+authors = ["CyberCastle <private@mail.com>"]
+license = "GPL"
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+dbus-fast = "^2.21.3"
+pygobject = "^3.48.2"
+
+[tool.setuptools.package-data]
+"dbus-fast" = ["py.typed"]
+
+[tool.poetry.group.dev.dependencies]
+black = "^22.12.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
