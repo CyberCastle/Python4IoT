@@ -139,7 +139,7 @@ class GattApplication(ServiceInterface):
         iface: ProxyInterface = adapter.get_interface(defs.GATT_MANAGER_INTERFACE)
         await iface.call_unregister_application(self.path)  # type: ignore
 
-    async def start_advertising(self, adapter: ProxyObject):
+    async def start_advertising(self, adapter: ProxyObject) -> LEAdvertisement:
         """
         Start Advertising the application
 
@@ -149,16 +149,18 @@ class GattApplication(ServiceInterface):
             The adapter object to start advertising on
         """
         await self.set_name(adapter, self.app_name)
-        advertisement: LEAdvertisement = LEAdvertisement(Type.PERIPHERAL, len(self.advertisements) + 1, self.base_path)
-        advertisement.name = self.app_name
-        advertisement.TxPower = 20
+        advertisement: LEAdvertisement = LEAdvertisement(self.app_name, Type.PERIPHERAL, len(self.advertisements) + 1, self.base_path)
+        advertisement._tx_power = 20
+
         self.advertisements.append(advertisement)
 
-        # Only add the first UUID
+        # Only add the first service UUID
         advertisement._service_uuids.append(self.services[0].UUID)
         self._bus.export(advertisement.path, advertisement)
         iface: ProxyInterface = adapter.get_interface(defs.LE_ADVERTISEMENT_MANAGER_INTERFACE)
         await iface.call_register_advertisement(advertisement.path, {})  # type: ignore
+
+        return advertisement
 
     async def is_advertising(self, adapter: ProxyObject) -> bool:
         """
@@ -178,7 +180,23 @@ class GattApplication(ServiceInterface):
         instances: Variant = await iface.call_get(defs.LE_ADVERTISEMENT_MANAGER_INTERFACE, "ActiveInstances")  # type: ignore
         return instances.value > 0
 
-    async def stop_advertising(self, adapter: ProxyObject):
+    async def stop_all_advertising(self, adapter: ProxyObject):
+        """
+        Stop Advertising
+
+        Parameters
+        ----------
+        adapter : ProxyObject
+            The adapter object to stop all advertising
+        """
+
+        await self.set_name(adapter, "")
+        for advertisement in self.advertisements:
+            iface: ProxyInterface = adapter.get_interface(defs.LE_ADVERTISEMENT_MANAGER_INTERFACE)
+            await iface.call_unregister_advertisement(advertisement.path)  # type: ignore
+            self._bus.unexport(advertisement.path)
+
+    async def stop_advertising(self, adapter: ProxyObject, advertisement: LEAdvertisement):
         """
         Stop Advertising
 
@@ -186,9 +204,10 @@ class GattApplication(ServiceInterface):
         ----------
         adapter : ProxyObject
             The adapter object to stop advertising
+        advertisement: LEAdvertisement
+            The advertisement to stop
         """
-        await self.set_name(adapter, "")
-        advertisement: LEAdvertisement = self.advertisements.pop()
+        self.advertisements.remove(advertisement)
         iface: ProxyInterface = adapter.get_interface(defs.LE_ADVERTISEMENT_MANAGER_INTERFACE)
         await iface.call_unregister_advertisement(advertisement.path)  # type: ignore
         self._bus.unexport(advertisement.path)

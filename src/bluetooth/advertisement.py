@@ -2,6 +2,7 @@
 from enum import Enum
 import logging
 
+from dbus_fast import PropertyAccess
 from dbus_fast.service import ServiceInterface, method, dbus_property
 
 from bluetooth import defs
@@ -27,6 +28,7 @@ class LEAdvertisement(ServiceInterface):
 
     def __init__(
         self,
+        local_name: str,
         advertising_type: Type,
         index: int,
         base_path: str,
@@ -36,6 +38,8 @@ class LEAdvertisement(ServiceInterface):
 
         Parameters
         ----------
+        local_name: str
+            Local name for advertisement
         advertising_type : Type
             The type of advertisement
         index : int,
@@ -48,8 +52,11 @@ class LEAdvertisement(ServiceInterface):
         self._type: str = advertising_type.value
         self._service_uuids: list[str] = []
         self._manufacturer_data: dict = {}
-        self._solicit_uuids: list[str] = [""]
+        self._solicit_uuids: list[str] = []
         self._service_data: dict = {}
+
+        # Default, Remote Control (https://github.com/boskokg/flutter_blue_plus/files/10681601/Appearance.Values.pdf)
+        self._appearance: int = 0x0180
 
         # 3 options below are classified as Experimental in  and really
         # work only: - when  is compiled with such option (usually it is)
@@ -62,22 +69,19 @@ class LEAdvertisement(ServiceInterface):
         self._max_interval: int = 100  # in ms, range [20ms, 10,485s]
         self._tx_power: int = 20  # range [-127 to +20]
 
-        self._local_name = ""
+        self._local_name = local_name
+        self._timeout = 3600
+        self._discoverable = True
 
-        self.data = None
         super(LEAdvertisement, self).__init__(defs.LE_ADVERTISEMENT_INTERFACE)
 
     @method()
     def Release(self):
         logger.info("%s: Released!" % self.path)
 
-    @dbus_property()
+    @dbus_property(PropertyAccess.READ)
     def Type(self) -> "s":  # type: ignore
         return self._type
-
-    @Type.setter
-    def Type(self, type: "s"):  # type: ignore
-        self._type = type
 
     @dbus_property()
     def ServiceUUIDs(self) -> "as":  # type: ignore
@@ -87,21 +91,13 @@ class LEAdvertisement(ServiceInterface):
     def ServiceUUIDs(self, service_uuids: "as"):  # type: ignore
         self._service_uuids = service_uuids
 
-    @dbus_property()
+    @dbus_property(PropertyAccess.READ)
     def ManufacturerData(self) -> "a{qv}":  # type: ignore
         return self._manufacturer_data
 
-    @ManufacturerData.setter
-    def ManufacturerData(self, data: "a{qv}"):  # type: ignore
-        self._manufacturer_data = data
-
-    @dbus_property()
-    def SolicitUUIDs(self) -> "as":  # type: ignore
+    @dbus_property(PropertyAccess.READ)
+    def SolicitUUIDs(self) -> "as":  # type: ignore # noqa: F821 F722
         return self._solicit_uuids
-
-    @SolicitUUIDs.setter  # type: ignore
-    def SolicitUUIDs(self, uuids: "as"):  # type: ignore
-        self._solicit_uuids = uuids
 
     @dbus_property()
     def ServiceData(self) -> "a{sv}":  # type: ignore
@@ -111,42 +107,34 @@ class LEAdvertisement(ServiceInterface):
     def ServiceData(self, data: "a{sv}"):  # type: ignore
         self._service_data = data
 
-    @dbus_property()
+    @dbus_property(PropertyAccess.READ)
     def Includes(self) -> "as":  # type: ignore
-        return ["tx-power", "local-name"]
+        return ["0"]
 
-    @Includes.setter
-    def Includes(self, include):  # type: ignore
-        pass
-
-    @dbus_property()
+    @dbus_property(PropertyAccess.READ)
     def TxPower(self) -> "n":  # type: ignore
         return self._tx_power
 
-    @TxPower.setter
-    def TxPower(self, dbm: "n"):  # type: ignore
-        self._tx_power = dbm
-
-    @dbus_property()
+    @dbus_property(PropertyAccess.READ)
     def MaxInterval(self) -> "u":  # type: ignore
         return self._max_interval
 
-    @MaxInterval.setter
-    def MaxInterval(self, interval: "u"):  # type: ignore
-        self._max_interval = interval
-
-    @dbus_property()
+    @dbus_property(PropertyAccess.READ)
     def MinInterval(self) -> "u":  # type: ignore
         return self._min_interval
 
-    @MinInterval.setter
-    def MinInterval(self, interval: "u"):  # type: ignore
-        self._min_interval = interval
-
-    @dbus_property()
+    @dbus_property(PropertyAccess.READ)
     def LocalName(self) -> "s":  # type: ignore
         return self._local_name
 
-    @LocalName.setter
-    def LocalName(self, name: str):
-        self._local_name = name
+    @dbus_property(PropertyAccess.READ)
+    def Appearance(self) -> "q":  # type: ignore
+        return self._appearance
+
+    @dbus_property(PropertyAccess.READ)
+    def Timeout(self) -> "q":  # type: ignore
+        return self._timeout
+
+    @dbus_property(PropertyAccess.READ)
+    def Discoverable(self) -> "b":  # type: ignore
+        return self._discoverable
