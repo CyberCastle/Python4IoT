@@ -1,5 +1,6 @@
 # Based in this code: https://github.com/kevincar/bless/blob/master/bless/backends/bluezdbus/dbus/characteristic.py
 from collections.abc import Callable
+from enum import Enum
 from typing import Optional
 
 import logging
@@ -7,12 +8,125 @@ import logging
 from dbus_fast.aio.message_bus import MessageBus
 from dbus_fast.service import ServiceInterface, method, dbus_property
 from dbus_fast.constants import PropertyAccess
-from dbus_fast.signature import Variant
 
 from bluetooth import defs
-from bluetooth.descriptor import GattDescriptor
+from bluetooth.descriptor import GattDescriptor, GattDescriptorFlags
+from utils.dbus_utils import getattr_variant
 
 logger = logging.getLogger(name=__name__)
+
+
+class CharacteristicReadOptions:
+    """Options supplied to characteristic read functions.
+    Generally you can ignore these unless you have a long characteristic (eg > 48 bytes) or you have some specific authorization requirements.
+    """
+
+    def __init__(self, options):
+        self._offset = int(getattr_variant(options, "offset", 0))
+        self._mtu = int(getattr_variant(options, "mtu", 0))
+        self._device = getattr_variant(options, "device", None)
+
+    @property
+    def offset(self) -> int:
+        """A byte offset to read the characteristic from until the end."""
+        return self._offset
+
+    @property
+    def mtu(self) -> Optional[int]:
+        """The exchanged Maximum Transfer Unit of the connection with the remote device or 0."""
+        return self._mtu
+
+    @property
+    def device(self):
+        """The path of the remote device on the system dbus or None."""
+        return self._device
+
+
+class CharacteristicWriteType(Enum):
+    """Possible value of the :class:`CharacteristicWriteOptions`.type field"""
+
+    COMMAND = 0
+    """Write without response
+    """
+    REQUEST = 1
+    """Write with response
+    """
+    RELIABLE = 2
+    """Reliable Write
+    """
+
+
+class CharacteristicWriteOptions:
+    """Options supplied to characteristic write functions.
+    Generally you can ignore these unless you have a long characteristic (eg > 48 bytes) or you have some specific authorization requirements.
+    """
+
+    def __init__(self, options):
+        self._offset = int(getattr_variant(options, "offset", 0))
+        type = getattr_variant(options, "type", None)
+        if not type is None:
+            type = CharacteristicWriteType[type.upper()]
+        self._type = type
+        self._mtu = int(getattr_variant(options, "mtu", 0))
+        self._device = getattr_variant(options, "device", None)
+        self._link = getattr_variant(options, "link", None)
+        self._prepare_authorize = getattr_variant(options, "prepare-authorize", False)
+
+    @property
+    def offset(self):
+        """A byte offset to use when writing to this characteristic."""
+        return self._offset
+
+    @property
+    def type(self):
+        """The type of write operation requested or None."""
+        return self._type
+
+    @property
+    def mtu(self):
+        """The exchanged Maximum Transfer Unit of the connection with the remote device or 0."""
+        return self._mtu
+
+    @property
+    def device(self):
+        """The path of the remote device on the system dbus or None."""
+        return self._device
+
+    @property
+    def link(self):
+        """The link type."""
+        return self._link
+
+    @property
+    def prepare_authorize(self):
+        """True if prepare authorization request. False otherwise."""
+        return self._prepare_authorize
+
+
+class GattCharacteristicFlags(Enum):
+    BROADCAST = "broadcast"
+    READ = "read"
+    WRITE_WITHOUT_RESPONSE = "write-without-response"
+    WRITE = "write"
+    NOTIFY = "notify"
+    INDICATE = "indicate"
+    AUTHENTICATED_SIGNED_WRITES = "authenticated-signed-writes"
+    EXTENDED_PROPERTIES = "extended-properties"
+    RELIABLE_WRITE = "reliable-write"
+    WRITABLE_AUXILIARIES = "writable-auxiliaries"
+    ENCRYPT_READ = "encrypt-read"
+    ENCRYPT_WRITE = "encrypt-write"
+    ENCRYPT_NOTIFY = "encrypt-notify"  # (Server only)
+    ENCRYPT_INDICATE = "encrypt-indicate"  # (Server only)
+    ENCRYPT_AUTHENTICATED_READ = "encrypt-authenticated-read"
+    ENCRYPT_AUTHENTICATED_WRITE = "encrypt-authenticated-write"
+    ENCRYPT_AUTHENTICATED_NOTIFY = "encrypt-authenticated-notify"  # (Server on
+    ENCRYPT_AUTHENTICATED_INDICATE = "encrypt-authenticated-indicate"  # (Server
+    SECURE_READ = "secure-read"  # (Server only)
+    SECURE_WRITE = "secure-write"  # (Server only)
+    SECURE_NOTIFY = "secure-notify"  # (Server only)
+    SECURE_INDICATE = "secure-indicate"  # (Server only)
+    AUTHORIZE = "authorize"
 
 
 class GattCharacteristic(ServiceInterface):
@@ -23,7 +137,7 @@ class GattCharacteristic(ServiceInterface):
     def __init__(
         self,
         uuid: str,
-        flags: list[defs.GattCharacteristicFlags],
+        flags: list[GattCharacteristicFlags],
         index: int,
         service_path: str,
         subscribed_characteristics: list[str],
@@ -59,8 +173,8 @@ class GattCharacteristic(ServiceInterface):
 
         self.descriptors: list[GattDescriptor] = []
 
-        self._read: Optional[Callable[[GattCharacteristic], bytearray]] = None
-        self._write: Optional[Callable[[GattCharacteristic, bytearray], None]] = None
+        self._read: Optional[Callable[[GattCharacteristic, CharacteristicReadOptions], bytearray]] = None
+        self._write: Optional[Callable[[GattCharacteristic, CharacteristicWriteOptions, bytearray], None]] = None
 
         self._start_notify: Optional[Callable[[None], None]] = None
         self._stop_notify: Optional[Callable[[None], None]] = None
@@ -112,7 +226,7 @@ class GattCharacteristic(ServiceInterface):
         if f is None:
             raise NotImplementedError()
 
-        return f(self)
+        return f(self, CharacteristicReadOptions(options))
 
     @method()
     def WriteValue(self, value: "ay", options: "a{sv}"):  # type: ignore
@@ -130,7 +244,7 @@ class GattCharacteristic(ServiceInterface):
         f = self._write
         if f is None:
             raise NotImplementedError()
-        f(self, value)
+        f(self, CharacteristicWriteOptions(options), value)
 
     @method()
     def StartNotify(self):
@@ -158,9 +272,9 @@ class GattCharacteristic(ServiceInterface):
     def Confirm(self):
         logger.info("Value was received!")
 
-    async def add_descriptor(self, uuid: str, flags: list[defs.GattDescriptorFlags], value: bytearray) -> GattDescriptor:
+    async def add_descriptor(self, uuid: str, flags: list[GattDescriptorFlags], value: bytearray) -> GattDescriptor:
         """
-        Adds a BlueZGattDescriptor to the characteristic.
+        Adds a GattDescriptor to the characteristic.
 
         Parameters
         ----------
@@ -179,19 +293,19 @@ class GattCharacteristic(ServiceInterface):
         return descriptor
 
     @property
-    def read(self) -> Optional[Callable[["GattCharacteristic"], bytearray]]:
+    def read(self) -> Optional[Callable[["GattCharacteristic", CharacteristicReadOptions], bytearray]]:
         return self._read
 
     @read.setter
-    def read(self, fn: Optional[Callable[["GattCharacteristic"], bytearray]]):
+    def read(self, fn: Optional[Callable[["GattCharacteristic", CharacteristicReadOptions], bytearray]]):
         self._read = fn
 
     @property
-    def write(self) -> Optional[Callable[["GattCharacteristic", bytearray], None]]:
+    def write(self) -> Optional[Callable[["GattCharacteristic", CharacteristicWriteOptions, bytearray], None]]:
         return self._write
 
     @write.setter
-    def write(self, fn: Optional[Callable[["GattCharacteristic", bytearray], None]]):
+    def write(self, fn: Optional[Callable[["GattCharacteristic", CharacteristicWriteOptions, bytearray], None]]):
         self._write = fn
 
     @property
@@ -209,15 +323,3 @@ class GattCharacteristic(ServiceInterface):
     @stop_notify.setter
     def stop_notify(self, fn: Optional[Callable[[None], None]]):
         self._stop_notify = fn
-
-    async def get_obj(self) -> dict:
-        """
-        Obtain the underlying dictionary within the  API that describes
-        the characteristic
-
-        Returns
-        -------
-        dict
-            The dictionary that describes the characteristic
-        """
-        return {"UUID": Variant("s", self._uuid)}

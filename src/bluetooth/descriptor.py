@@ -1,8 +1,87 @@
+from enum import Enum
+from typing import Callable, Optional
 from dbus_fast.service import ServiceInterface, method, dbus_property
 from dbus_fast.constants import PropertyAccess
 from dbus_fast.signature import Variant
 
 from bluetooth import defs
+from utils.dbus_utils import getattr_variant
+
+
+class DescriptorReadOptions:
+    """Options supplied to descriptor read functions.
+    Generally you can ignore these unless you have a long descriptor (eg > 48 bytes) or you have some specific authorization requirements.
+    """
+
+    def __init__(self, options):
+        self._offset = getattr_variant(options, "offset", 0)
+        self._link = getattr_variant(options, "link", None)
+        self._device = getattr_variant(options, "device", None)
+
+    @property
+    def offset(self):
+        """A byte offset to use when writing to this descriptor."""
+        return self._offset
+
+    @property
+    def link(self):
+        """The link type."""
+        return self._link
+
+    @property
+    def device(self):
+        """The path of the remote device on the system dbus or None."""
+        return self._device
+
+
+class DescriptorWriteOptions:
+    """Options supplied to descriptor write functions.
+    Generally you can ignore these unless you have a long descriptor (eg > 48 bytes) or you have some specific authorization requirements.
+    """
+
+    def __init__(self, options):
+        self._offset = getattr_variant(options, "offset", 0)
+        self._mtu = int(getattr_variant(options, "mtu", 0))
+        self._device = getattr_variant(options, "device", None)
+        self._link = getattr_variant(options, "link", None)
+        self._prepare_authorize = getattr_variant(options, "prepare-authorize", False)
+
+    @property
+    def offset(self):
+        """A byte offset to use when writing to this descriptor."""
+        return self._offset
+
+    @property
+    def mtu(self):
+        """The exchanged Maximum Transfer Unit of the connection with the remote device or 0."""
+        return self._mtu
+
+    @property
+    def device(self):
+        """The path of the remote device on the system dbus or None."""
+        return self._device
+
+    @property
+    def link(self):
+        """The link type."""
+        return self._link
+
+    @property
+    def prepare_authorize(self):
+        """True if prepare authorization request. False otherwise."""
+        return self._prepare_authorize
+
+
+class GattDescriptorFlags(Enum):
+    READ = "read"
+    WRITE = "write"
+    ENCRYPT_READ = "encrypt-read"
+    ENCRYPT_WRITE = "encrypt-write"
+    ENCRYPT_AUTHENTICATED_READ = "encrypt-authenticated-read"
+    ENCRYPT_AUTHENTICATED_WRITE = "encrypt-authenticated-write"
+    SECURE_READ = "secure-read"  # (Server only)
+    SECURE_WRITE = "secure-write"  # (Server only)
+    AUTHORIZE = "authorize"
 
 
 class GattDescriptor(ServiceInterface):
@@ -10,9 +89,9 @@ class GattDescriptor(ServiceInterface):
     org.bluez.GattDescriptor1 interface implementation
     """
 
-    def __init__(self, uuid: str, flags: list[defs.GattDescriptorFlags], index: int, characteristic_path: str):
+    def __init__(self, uuid: str, flags: list[GattDescriptorFlags], index: int, characteristic_path: str):
         """
-        Create a BlueZ Gatt Descriptor
+        Create a GATT Descriptor
 
         Parameters
         ----------
@@ -31,6 +110,9 @@ class GattDescriptor(ServiceInterface):
         self._flags: list[str] = [x.value for x in flags]
         self._characteristic_path: str = characteristic_path
         self._value: bytearray = bytearray()
+
+        self._read: Optional[Callable[["GattDescriptor", DescriptorReadOptions], bytearray]]
+        self._write: Optional[Callable[["GattDescriptor", DescriptorWriteOptions, bytearray], None]]
 
         super(GattDescriptor, self).__init__(defs.GATT_DESCRIPTOR_INTERFACE)
 
@@ -71,7 +153,11 @@ class GattDescriptor(ServiceInterface):
         bytearray
             The bytearray that is the value of the descriptor
         """
-        return self._value
+        f = self._read
+        if f is None:
+            raise NotImplementedError()
+
+        return f(self, DescriptorReadOptions(options))
 
     @method()
     def WriteValue(self, value: "ay", options: "a{sv}"):  # type: ignore # noqa
@@ -86,16 +172,23 @@ class GattDescriptor(ServiceInterface):
         options : Dict
             Some options for you to select from
         """
-        self._value = value
+        f = self._write
+        if f is None:
+            raise NotImplementedError()
+        f(self, DescriptorWriteOptions(options), value)
 
-    async def get_obj(self) -> dict:
-        """
-        Obtain the underlying dictionary within the BlueZ API that describes
-        the descriptor
+    @property
+    def read(self) -> Optional[Callable[["GattDescriptor", DescriptorReadOptions], bytearray]]:
+        return self._read
 
-        Returns
-        -------
-        Dict
-            The dictionary that describes the descriptor
-        """
-        return {"UUID": Variant("s", self._uuid)}
+    @read.setter
+    def read(self, fn: Optional[Callable[["GattDescriptor", DescriptorReadOptions], bytearray]]):
+        self._read = fn
+
+    @property
+    def write(self) -> Optional[Callable[["GattDescriptor", DescriptorWriteOptions, bytearray], None]]:
+        return self._write
+
+    @write.setter
+    def write(self, fn: Optional[Callable[["GattDescriptor", DescriptorWriteOptions, bytearray], None]]):
+        self._write = fn

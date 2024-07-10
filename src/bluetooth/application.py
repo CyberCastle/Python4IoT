@@ -1,6 +1,5 @@
 # Based in this code: https://github.com/kevincar/bless/blob/master/bless/backends/bluezdbus/dbus/application.py
 import re
-from collections.abc import Callable
 from typing import Optional
 
 from dbus_fast.service import ServiceInterface
@@ -10,7 +9,7 @@ from dbus_fast.signature import Variant
 
 from bluetooth import defs
 from bluetooth.advertisement import LEAdvertisement, Type
-from bluetooth.characteristic import GattCharacteristic
+from bluetooth.characteristic import GattCharacteristic, GattCharacteristicFlags
 from bluetooth.service import GattService
 
 
@@ -36,11 +35,6 @@ class GattApplication(ServiceInterface):
         self.base_path: str = "/org/bluez/" + re.sub("[^A-Za-z0-9_]", "", self.app_name)
         self.advertisements: list[LEAdvertisement] = []
         self.services: list[GattService] = []
-
-        self.read: Optional[Callable[[GattCharacteristic], bytearray]] = None
-        self.write: Optional[Callable[[GattCharacteristic, bytearray], None]] = None
-        self.start_notify: Optional[Callable[[None], None]] = None
-        self.stop_notify: Optional[Callable[[None], None]] = None
 
         self.subscribed_characteristics: list[str] = []
 
@@ -70,7 +64,7 @@ class GattApplication(ServiceInterface):
         return service
 
     async def add_characteristic(
-        self, service_uuid: str, uuid: str, value: bytearray, flags: list[defs.GattCharacteristicFlags]
+        self, service_uuid: str, uuid: str, value: Optional[bytearray], flags: list[GattCharacteristicFlags]
     ) -> GattCharacteristic:
         """
         Add a characteristic to the service
@@ -95,10 +89,6 @@ class GattApplication(ServiceInterface):
         """
         service: GattService = next(iter([x for x in self.services if x._uuid == service_uuid]))
         characteristic: GattCharacteristic = await service.add_characteristic(uuid, flags, value)
-        characteristic.read = self.read
-        characteristic.write = self.write
-        characteristic.start_notify = self.start_notify
-        characteristic.stop_notify = self.stop_notify
         return characteristic
 
     async def set_name(self, adapter: ProxyObject, name: str):

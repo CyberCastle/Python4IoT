@@ -1,11 +1,12 @@
 # Based in this code: https://github.com/kevincar/bless/blob/master/bless/backends/bluezdbus/dbus/service.py
+from typing import Optional
 from dbus_fast.aio.message_bus import MessageBus
 from dbus_fast.service import ServiceInterface, dbus_property
 from dbus_fast.constants import PropertyAccess
 from dbus_fast.signature import Variant
 
 from bluetooth import defs
-from bluetooth.characteristic import GattCharacteristic
+from bluetooth.characteristic import GattCharacteristic, GattCharacteristicFlags
 
 
 class GattService(ServiceInterface):
@@ -57,7 +58,7 @@ class GattService(ServiceInterface):
     def Primary(self) -> "b":  # type: ignore
         return self._primary
 
-    async def add_characteristic(self, uuid: str, flags: list[defs.GattCharacteristicFlags], value: bytearray) -> GattCharacteristic:
+    async def add_characteristic(self, uuid: str, flags: list[GattCharacteristicFlags], value: Optional[bytearray]) -> GattCharacteristic:
         """
         Adds a bc.GattCharacteristic to the service.
 
@@ -72,20 +73,10 @@ class GattService(ServiceInterface):
         """
         index: int = len(self.characteristics) + 1
         characteristic: GattCharacteristic = GattCharacteristic(uuid, flags, index, self.path, self.subscribed_characteristics, self._bus)
-        characteristic._value = value
+        if value != None:
+            characteristic._value = value
+
         self.characteristics.append(characteristic)
         self._bus.export(characteristic.path, characteristic)
 
         return characteristic
-
-    async def get_obj(self) -> dict:
-        """
-        Obtain the underlying dictionary within the  API that describes
-        the service
-
-        Returns
-        -------
-        dict
-            The dictionary that describes the service
-        """
-        return {"Primary": Variant("b", self._primary), "UUID": Variant("s", self._uuid)}
