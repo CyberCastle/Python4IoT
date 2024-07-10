@@ -77,7 +77,7 @@ class BleDevice:
             return found_device[0]
         raise BluetoothException(f"No device named {device} found")
 
-    async def select(self, device: Optional[str] = None) -> ProxyObject:
+    async def select(self, device: Optional[str] = None) -> Optional[ProxyObject]:
         """
         Gets the bluetooth device specified by device or the default if device
         is None
